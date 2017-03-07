@@ -1,0 +1,227 @@
+		<head>
+			<style>
+				body {
+					font-family: Verdana, Geneva, sans-serif;
+					font-size: 10px;
+				}
+				
+				#nav {
+					padding-bottom: 2px;
+					margin-bottom: 8px;
+					display: inline-block;
+				}
+				
+				#content {
+					width: 95%;
+					margin: 0 auto;
+				}
+				
+				#data {
+					width: 95%;
+					height: 75%;
+				}
+				
+				#actions {
+					text-align: center;
+				}
+				
+				#title {
+					font-weight: bold;
+				}
+				
+				a:link {
+					color: #999999;
+					text-decoration: none;
+				}
+
+				a:visited {
+					color :#999999;
+				}
+
+				a:hover {
+					color: #707070;
+					text-decoration: underline;
+				}
+
+				a:active {
+					color: #999999;
+				}
+			</style>
+			<script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
+			<script>
+				function _isContains(json, value) {
+					let contains = false;
+					Object.keys(json).some(key => {
+						contains = typeof json[key] === 'object' ? _isContains(json[key], value) : json[key] === value;
+						 return contains;
+					});
+					return contains;
+				}
+			
+				$(document).ready(function() {
+				
+					$("#copy").click(function(event) {
+						event.preventDefault();
+						document.querySelector('#data').select();
+						try {
+							document.execCommand('copy');
+						} 
+						catch (err) {
+						}
+					});
+					
+					$("#export").click(function(event) {
+						event.preventDefault();
+						var dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent($("#data").val());
+						var link = document.createElement("a");
+						link.download = "pokedex.json";
+						link.href = dataUri;
+						document.body.appendChild(link);
+						link.click();
+						document.body.removeChild(link);
+						delete link;
+					});
+					
+					$("#get").click(function(event) {
+						event.preventDefault();
+						
+						$("#status").html("fetching pokemon master file..");
+						
+						var master = [];
+						var url = 'https://raw.githubusercontent.com/Shrugsy/Pokemon_Go_Master/master/000001597FF747A8_GAME_MASTER_0_53_1.txt';
+						
+						$.get(url, function(data) {
+						
+							var dataParts = data.split("item_templates ");
+							//The data used is in the protobuf format which sadly cannot be parsed easily in PHP.
+							//However - using a few regular expressions it can be converted into valid JSON.
+							
+							master = '[';
+
+							for(i = 1; i < dataParts.length - 1; i++) //First and last items are of no interest.
+							{
+								var part = dataParts[i];
+								//$("#debug").html(dataParts[i]);
+								
+								//Quotes all 'keys' of objects and values that aren't booleans or numbers
+								var jsonPart = part.replace(new RegExp(/([a-z_0-9]+): ([a-zA-Z0-9\._\- :\/"]+)/, 'g'), function (match, p1, p2) { 
+									var escapedValues = '"' + p1 + '": ';
+									
+									if($.isNumeric(p2) || p2 === 'true' || p2 === 'false')
+									escapedValues += p2;
+									else if(p2.indexOf('"') === 0) { //Don't quote already quoted values
+										escapedValues += p2;
+									}
+									else
+									escapedValues += '"' + p2 +'"';
+									
+									return escapedValues + ',';
+								});
+
+								//Quote all keys that come before an object and add the needed colon, e.g.
+								//avatar_customization { } becomes "avatar_customization": {}
+								jsonPart = jsonPart.replace(new RegExp(/([a-z_]+) {/, 'g'), '"$1": {');
+								//Filter out commas after the last value in an object as that isn't valid JSON.
+								jsonPart = jsonPart.replace(new RegExp(/(,)(\s+})/, 'g'), '$2');
+								//Add comma's between object values
+								jsonPart = jsonPart.replace(new RegExp(/}(\s+"[a-z_0-9]+")/, 'g'), '},$1');
+								//Strip new lines etc.
+								jsonPart = jsonPart.replace(new RegExp(/(\r\n|\n|\r)/, 'g'), "");
+								//Add comma to end of each part
+								if ((dataParts.length - 2) != i)
+								jsonPart = jsonPart.replace(new RegExp(/}$/, 'g'), '},');
+								
+								master += jsonPart;
+							}
+							
+							master += ']';
+							
+							master = JSON.parse(master);
+							
+							var pokeIndex = [];
+							var data = [];
+							
+							//Compile list of pokemon indexes
+							for (ii = 0; ii < master.length; ii++) {
+								var tempID = master[ii].template_id;
+								if (tempID.match(/V[0-9]{4}_POKEMON_/)) {
+									pokeIndex.push(ii);
+								}
+							}
+							
+							for (x = 0; x < pokeIndex.length; x++) {
+								//Filter only pokemon
+								var tempID = master[pokeIndex[x]].template_id;
+								var poke = master[pokeIndex[x]].pokemon_settings;
+								
+								if (x != 0) {
+									var prevPoke = master[pokeIndex[x - 1]];
+								}
+								if (x != pokeIndex.length - 1) {
+									var nextPoke = master[pokeIndex[x + 1]];
+								}
+								
+								//Grab pokemon data
+								var id = tempID.substring(2, 5);
+								var name = tempID.substring(14);
+								name = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+								var type = poke.type.substring(13);
+								type = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
+								if ("type_2" in poke) {
+									var type2 = poke.type_2.substring(13);
+									type2 = type2.charAt(0).toUpperCase() + type2.slice(1).toLowerCase();
+									type = type + '/' + type2;
+								}
+								if ("parent_pokemon_id" in poke) {
+									var prev_evolution = prevPoke.template_id.substring(14);
+									prev_evolution = prev_evolution.charAt(0).toUpperCase() + prev_evolution.slice(1).toLowerCase();
+								}
+								if ("evolution_ids" in poke) {
+									var next_evolution = nextPoke.template_id.substring(14);
+									next_evolution = next_evolution.charAt(0).toUpperCase() + next_evolution.slice(1).toLowerCase();
+								}
+								var candy_to_evolve = poke.candy_to_evolve;
+								var km_buddy_distance = poke.km_buddy_distance;
+								
+								var stats = { "base_stamina": poke.stats.base_stamina, "base_attack": poke.stats.base_attack, "base_defense": poke.stats.base_defense};
+								
+								var encounter = { "base_capture_rate": poke.stats.base_capture_rate, "base_flee_rate": poke.stats.base_flee_rate };
+								
+								var temp = new Object();
+								temp["id"] = id;
+								temp["name"] = name;
+								temp["type"] = type;
+								if ("parent_pokemon_id" in poke) {
+									temp["prev_evolution"] = prev_evolution;
+								}
+								if ("evolution_ids" in poke) {
+									temp["next_evolution"] = next_evolution;
+								}
+								temp["stats"] = stats;
+								temp["encounter"] = encounter;
+								temp["candy_to_evolve"] = candy_to_evolve;
+								temp["km_buddy_distance"] = km_buddy_distance;
+								
+								data.push(temp);
+								
+								$("#status").html("fetching pokemon: " + x + "/" + pokeIndex.length);
+								$("#data").val(JSON.stringify(data));
+							}
+							$("#status").html("idle..");
+						});
+
+					});
+				});
+			</script>
+		</head>
+		
+		<body>
+			<div id="nav">
+				<span id="title">pokedex_</span> <a href="#" id="get">get</a> :: <span id="status">idle..</span>
+			</div>
+			<div id="content">
+				<textarea id="data"></textarea>
+				<div id="actions"><a href="#" id="copy">copy to clipboard</a> :: <a href="#" id="export">export json</a></div>
+			</div>
+			<div id="debug"></div>
+		</body>
